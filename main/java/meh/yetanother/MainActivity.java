@@ -1,22 +1,21 @@
 package meh.yetanother;
 
-import android.os.AsyncTask;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
-import java.net.URL;
 import java.util.ArrayList;
 
 public class MainActivity extends AppCompatActivity {
     ArrayAdapter<String> adapter;
-    private static final int PORT= 8888;
-    private static final int TIMEOUT_MS = 500;
+    private static final int PORT = 8888;
     boolean listen = true;
+    ListenerThread listener = new ListenerThread();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -29,30 +28,45 @@ public class MainActivity extends AppCompatActivity {
         listview.setAdapter(adapter);
 
         start();
-
-        //just to show these parts are in different threads
-        String temp = Thread.currentThread().getName();
-        output("onCreate: " + temp);
     }
 
     public void stop(View view) {
         listen = false;
+        try {
+            listener.wait();
+        }
+        catch(InterruptedException e) {
+            output("Interrupted Exception: " + e.toString() );
+            e.printStackTrace();
+        }
+        catch(Exception e) {
+            output("Exception: " + e.toString() );
+            e.printStackTrace();
+        }
     }
 
     public void start(View view) {
-        start();
+        listen = true;
+        listener.start();
     }
 
     public void start() {
-        listen = true;
-        UpdateView task = new UpdateView();
-        task.execute();
+        listener.start();
     }
 
     protected void output(final String message) {
         runOnUiThread(new Thread(new Runnable() {
             public void run() {
-                adapter.add(message);
+                char[] hexBytes = String.format( "%040X", new BigInteger(1, message.getBytes()) ).toCharArray();
+                StringBuilder output = new StringBuilder();
+
+                for(int i=0; i<hexBytes.length-1; i+=2) {
+                    output.append(hexBytes[i]);
+                    output.append(hexBytes[i+1]);
+                    output.append(" ");
+                }
+                adapter.add("input: " + message);
+                adapter.add("output: " + output);
                 adapter.notifyDataSetChanged();
             }
         }));
@@ -60,8 +74,9 @@ public class MainActivity extends AppCompatActivity {
 
 
 
-    private class UpdateView extends AsyncTask<URL, Integer, Long> {
-        protected Long doInBackground(URL... urls) {
+    private class ListenerThread extends Thread {
+        @Override
+        public void run() {
             byte[] buf = new byte[1500];
 
             try {
@@ -71,7 +86,6 @@ public class MainActivity extends AppCompatActivity {
                 while(listen) {
                     socket.receive(packet);
                     output(new String(packet.getData(), 0, packet.getLength()));
-                    output("after");
 
                     try {
                         Thread.sleep(2000);
@@ -90,12 +104,6 @@ public class MainActivity extends AppCompatActivity {
                 output("Exception: " + e.toString() );
                 e.printStackTrace();
             }
-
-            return 0L;
-        }
-
-        protected void onPostExecute(Long result) {
-            //showDialog("Downloaded " + result + " bytes");
         }
     }
 }
