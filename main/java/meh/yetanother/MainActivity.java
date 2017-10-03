@@ -33,7 +33,7 @@ public class MainActivity extends AppCompatActivity {
     public void stop(View view) {
         listen = false;
         try {
-            listener.wait();
+            listener.join();
         }
         catch(InterruptedException e) {
             output("Interrupted Exception: " + e.toString() );
