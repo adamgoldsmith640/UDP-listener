@@ -1,4 +1,4 @@
-package meh.yetanother;
+package meh.UDPListener;
 
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -9,12 +9,14 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 
 public class MainActivity extends AppCompatActivity {
     ArrayAdapter<String> adapter;
     private static final int PORT = 8888;
-    boolean listen = true;
     ListenerThread listener = new ListenerThread();
 
     @Override
@@ -30,43 +32,23 @@ public class MainActivity extends AppCompatActivity {
         start();
     }
 
-    public void stop(View view) {
-        listen = false;
-        try {
-            listener.join();
-        }
-        catch(InterruptedException e) {
-            output("Interrupted Exception: " + e.toString() );
-            e.printStackTrace();
-        }
-        catch(Exception e) {
-            output("Exception: " + e.toString() );
-            e.printStackTrace();
-        }
-    }
-
-    public void start(View view) {
-        listen = true;
-        listener.start();
-    }
-
     public void start() {
-        listener.start();
+        Thread t = new Thread(listener);
+        t.start();
     }
 
-    protected void output(final String message) {
+    public synchronized void unpause(View view) {
+        listener.onResume();
+    }
+
+    public synchronized void pause(View view) {
+        listener.onPause();
+    }
+
+    protected void display(final String message) {
         runOnUiThread(new Thread(new Runnable() {
             public void run() {
-                char[] hexBytes = String.format( "%040X", new BigInteger(1, message.getBytes()) ).toCharArray();
-                StringBuilder output = new StringBuilder();
-
-                for(int i=0; i<hexBytes.length-1; i+=2) {
-                    output.append(hexBytes[i]);
-                    output.append(hexBytes[i+1]);
-                    output.append(" ");
-                }
-                adapter.add("input: " + message);
-                adapter.add("output: " + output);
+                adapter.add(message);
                 adapter.notifyDataSetChanged();
             }
         }));
@@ -74,35 +56,82 @@ public class MainActivity extends AppCompatActivity {
 
 
 
-    private class ListenerThread extends Thread {
+    private class ListenerThread implements Runnable {
+        byte[] buf = new byte[1500];
+        private final Object listenLock = new Object();
+        boolean listen = true;
+        boolean finished = false;
+
+
         @Override
         public void run() {
-            byte[] buf = new byte[1500];
-
             try {
                 DatagramSocket socket = new DatagramSocket(PORT);
                 DatagramPacket packet = new DatagramPacket(buf, buf.length);
+                String packetContents;
 
-                while(listen) {
+                while(!finished) {
                     socket.receive(packet);
-                    output(new String(packet.getData(), 0, packet.getLength()));
+                    //display(new String(packet.getData(), 0, packet.getLength()), true);
+                    packetContents = new String(packet.getData(), 0, packet.getLength());
+                    display(convertToHex(packetContents));
+                    Thread.sleep(2000);
 
-                    try {
-                        Thread.sleep(2000);
-                    }
-                    catch(InterruptedException e) {
-                        output("Interrupted Exception: " + e.toString() );
-                        e.printStackTrace();
+                    synchronized (listenLock) {
+                        while(!listen) {
+                            try {
+                                listenLock.wait();
+                            } catch (InterruptedException e) {
+                                display("Interrupted Exception in run(): " + e.toString());
+                                e.printStackTrace();
+                            }
+                        }
                     }
                 }
             }
             catch(IOException e) {
-                output("IO Exception: " + e.toString() );
+                display("IO Exception in run(): " + e.toString());
                 e.printStackTrace();
             }
             catch(Exception e) {
-                output("Exception: " + e.toString() );
+                display("GENERAL EXCEPTION in run(): " + e.toString());
                 e.printStackTrace();
+            }
+        }
+
+
+
+        private String convertToHex(String input) {
+            StringBuilder output = new StringBuilder();
+            DateFormat format = new SimpleDateFormat("HH:mm:ss");
+            Date date = new Date();
+            String time = format.format(date);
+            char[] hexBytes = String.format("%040X", new BigInteger(1, input.getBytes())).toCharArray();
+
+            for (int i = 0; i < hexBytes.length - 1; i += 2) {
+                output.append(hexBytes[i]);
+                output.append(hexBytes[i + 1]);
+                output.append(" ");
+            }
+            return "Time: " + time + "\n" + output;
+        }
+
+        private void onPause() {
+            synchronized (listenLock) {
+                if(listen) {
+                    listen = false;
+                    display("\nUDP listener paused\n");
+                }
+            }
+        }
+
+        private void onResume() {
+            synchronized (listenLock) {
+                if(!listen) {
+                    display("\nUDP listener unpaused\n");
+                    listen = true;
+                    listenLock.notifyAll();
+                }
             }
         }
     }
